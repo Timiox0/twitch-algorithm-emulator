@@ -292,17 +292,32 @@ class StreamControls {
     const twitchBtn = this.container.querySelector('#twitchConnectBtn');
     const twitchInput = this.container.querySelector('#twitchChannelInput');
 
-    modeLiveBtn.addEventListener('click', () => {
+    const doConnect = (rawChan) => {
+      const chan = (rawChan || twitchInput.value || '').trim().toLowerCase().replace('#', '');
+      if (!chan) return;
+      twitchInput.value = chan;
+      this.stateManager.connectLiveChannel(chan);
       modeLiveBtn.classList.add('active');
       modeSimBtn.classList.remove('active');
       liveConnectSection.style.display = 'flex';
-      categoryCompetitorsSection.style.display = 'flex';
       presetsSection.style.display = 'none';
       slidersGrid.style.display = 'none';
-      
-      const chan = twitchInput.value.trim() || 'kiryanyam';
-      twitchInput.value = chan;
-      this.stateManager.connectLiveChannel(chan);
+      twitchBtn.textContent = 'Отключить Live';
+      twitchBtn.classList.add('connected');
+
+      // Update navbar OBS links dynamically
+      document.querySelectorAll('.obs-link-btn').forEach(a => {
+        try {
+          const url = new URL(a.href, window.location.origin);
+          url.searchParams.set('channel', chan);
+          a.href = url.pathname + url.search;
+        } catch (e) {}
+      });
+    };
+
+    modeLiveBtn.addEventListener('click', () => {
+      const chan = (twitchInput.value || this.stateManager.activeChannel || 'kiryanyam').trim();
+      doConnect(chan);
     });
 
     modeSimBtn.addEventListener('click', () => {
@@ -313,6 +328,8 @@ class StreamControls {
       presetsSection.style.display = 'flex';
       slidersGrid.style.display = 'grid';
       this.stateManager.disconnectLiveChannel();
+      twitchBtn.textContent = 'Подключить Live';
+      twitchBtn.classList.remove('connected');
     });
 
     const tabPeerRivalsBtn = this.container.querySelector('#tabPeerRivalsBtn');
@@ -335,28 +352,25 @@ class StreamControls {
     this.container.querySelectorAll('.quick-chan-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const chan = btn.dataset.channel;
-        twitchInput.value = chan;
-        this.stateManager.connectLiveChannel(chan);
-        modeLiveBtn.classList.add('active');
-        modeSimBtn.classList.remove('active');
-        liveConnectSection.style.display = 'flex';
-        presetsSection.style.display = 'none';
-        slidersGrid.style.display = 'none';
+        doConnect(chan);
       });
     });
 
+    twitchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doConnect(twitchInput.value);
+      }
+    });
+
     twitchBtn.addEventListener('click', () => {
-      if (this.stateManager.mode === 'TWITCH_LIVE' && this.stateManager.activeChannel) {
+      const inputChan = (twitchInput.value || '').trim().toLowerCase().replace('#', '');
+      if (this.stateManager.mode === 'TWITCH_LIVE' && this.stateManager.activeChannel === inputChan) {
         this.stateManager.disconnectLiveChannel();
         twitchBtn.textContent = 'Подключить Live';
         twitchBtn.classList.remove('connected');
       } else {
-        const chan = twitchInput.value.trim();
-        if (chan) {
-          this.stateManager.connectLiveChannel(chan);
-          twitchBtn.textContent = 'Отключить Live';
-          twitchBtn.classList.add('connected');
-        }
+        doConnect(inputChan);
       }
     });
 

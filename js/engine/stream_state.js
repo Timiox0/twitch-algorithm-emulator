@@ -76,15 +76,15 @@ class StreamStateManager {
       }
 
       let savedData = null;
-      if (typeof localStorage !== 'undefined') {
-        const raw = localStorage.getItem(STORAGE_KEY);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
         if (raw) {
           savedData = JSON.parse(raw);
         }
       }
 
-      const channelToUse = urlChannel || savedData?.channel || '';
-      const modeToUse = urlMode || savedData?.mode || (channelToUse ? 'TWITCH_LIVE' : 'SIMULATOR');
+      const channelToUse = (urlChannel || savedData?.channel || '').toLowerCase().replace('#', '').trim();
+      const modeToUse = urlMode ? (urlMode === 'live' ? 'TWITCH_LIVE' : 'SIMULATOR') : (savedData?.mode || (channelToUse ? 'TWITCH_LIVE' : 'SIMULATOR'));
       this.activePreset = savedData?.preset || 'BALANCED_GRIND';
 
       if (modeToUse === 'TWITCH_LIVE' && channelToUse) {
@@ -100,13 +100,13 @@ class StreamStateManager {
 
   _saveSession() {
     try {
-      if (typeof localStorage !== 'undefined') {
+      if (typeof window !== 'undefined' && window.localStorage) {
         const payload = {
           channel: this.activeChannel,
           mode: this.mode,
           preset: this.activePreset
         };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       }
 
       if (typeof window !== 'undefined' && window.history && window.history.replaceState) {
