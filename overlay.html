@@ -56,21 +56,11 @@
           showAdvice: layoutMode === 'full'
         });
 
-        // 1. Standalone fallback state manager
-        const stateManager = new StreamStateManager();
-        stateManager.addListener((report) => {
-          hud.update(report);
-        });
+        let sseActive = false;
+        let localStateManager = null;
 
-        if (channel) {
-          stateManager.connectLiveChannel(channel);
-        } else if (preset) {
-          stateManager.applyPreset(preset);
-        }
-
-        // 2. High-Speed Server-Sent Events (SSE) Live Sync
-        // Receives exact state from the Master Dashboard in real time
-        let sseConnected = false;
+        // 1. High-Speed Server-Sent Events (SSE) Live Sync
+        // Receives exact state from the Master Dashboard with ZERO jitter
         try {
           const sse = new EventSource('/api/state/events');
           sse.onmessage = (evt) => {
@@ -78,48 +68,45 @@
             try {
               const report = JSON.parse(evt.data);
               if (report && report.scoreOverall !== undefined) {
-                sseConnected = true;
+                sseActive = true;
                 hud.update(report);
               }
             } catch (err) {}
           };
 
           sse.onerror = () => {
-            sseConnected = false;
+            sseActive = false;
           };
         } catch (e) {
-          console.warn('SSE not supported, falling back to local engine');
+          console.warn('SSE not supported');
         }
 
-        // 3. Fallback High-Frequency Poll for OBS Studio CEF
+        // 2. Fallback Poll (only active if SSE is not streaming)
         setInterval(async () => {
-          if (!sseConnected) {
+          if (!sseActive) {
             try {
               const res = await fetch(`/api/state/latest?_t=${Date.now()}`);
               if (res.ok) {
                 const report = await res.json();
                 if (report && report.scoreOverall !== undefined) {
                   hud.update(report);
+                  return;
                 }
               }
             } catch (e) {}
+
+            // If server has no state, lazy-init standalone manager
+            if (!localStateManager) {
+              localStateManager = new StreamStateManager();
+              localStateManager.addListener((report) => {
+                if (!sseActive) hud.update(report);
+              });
+              if (channel) localStateManager.connectLiveChannel(channel);
+              else if (preset) localStateManager.applyPreset(preset);
+            }
           }
         }, 500);
 
-        // 4. Cross-tab storage listener
-        window.addEventListener('storage', (e) => {
-          if (e.key === 'twitch_algo_session_v1' && e.newValue) {
-            try {
-              const session = JSON.parse(e.newValue);
-              if (session.mode === 'TWITCH_LIVE' && session.channel && session.channel !== stateManager.activeChannel) {
-                stateManager.connectLiveChannel(session.channel);
-              } else if (session.mode === 'SIMULATOR' && stateManager.mode === 'TWITCH_LIVE') {
-                stateManager.disconnectLiveChannel();
-                if (session.preset) stateManager.applyPreset(session.preset);
-              }
-            } catch (err) {}
-          }
-        });
       } catch (err) {
         console.error('Overlay init error:', err);
         const hudContainer = document.getElementById('hudContainer');

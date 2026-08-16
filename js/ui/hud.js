@@ -1,6 +1,7 @@
 /**
  * High-Performance OBS HUD Renderer (60 FPS)
  * Supports multiple layouts: 'full', 'circle' (gauge only), 'mini' (horizontal bar).
+ * Features anti-jitter damping and smooth number gliding.
  */
 
 class StreamHUD {
@@ -12,7 +13,13 @@ class StreamHUD {
 
     this.activeSegmentView = 'ALL'; // 'ALL', 'E', 'D'
 
+    // Anti-jitter damping state
+    this.currentScore = null;
+    this.targetScore = null;
+    this.animFrameId = null;
+
     this._initDOM();
+    this._startSmoothAnimationLoop();
   }
 
   _initDOM() {
@@ -273,6 +280,33 @@ class StreamHUD {
     }
   }
 
+  /**
+   * Starts smooth 60 FPS interpolation loop for score numbers to eliminate jitter
+   */
+  _startSmoothAnimationLoop() {
+    const loop = () => {
+      if (this.targetScore !== null) {
+        if (this.currentScore === null) {
+          this.currentScore = this.targetScore;
+        } else {
+          const delta = this.targetScore - this.currentScore;
+          // Smooth exponential damping
+          if (Math.abs(delta) > 0.02) {
+            this.currentScore += delta * 0.12;
+          } else {
+            this.currentScore = this.targetScore;
+          }
+        }
+
+        if (this.dom.scoreVal) {
+          this.dom.scoreVal.textContent = this.currentScore.toFixed(1);
+        }
+      }
+      this.animFrameId = requestAnimationFrame(loop);
+    };
+    this.animFrameId = requestAnimationFrame(loop);
+  }
+
   update(report) {
     if (!report) return;
 
@@ -297,14 +331,13 @@ class StreamHUD {
       this.dom.teleMsgSec.textContent = `${(meta.msgPerSec || 0).toFixed(1)}/s`;
     }
 
-    // 2. Score selection
+    // 2. Score selection & Smooth Target Set
     let displayScore = report.scoreOverall || 0;
     if (this.activeSegmentView === 'E') displayScore = report.scoreEarly || 0;
     if (this.activeSegmentView === 'D') displayScore = report.scoreDedicated || 0;
 
-    if (this.dom.scoreVal) {
-      this.dom.scoreVal.textContent = displayScore.toFixed(1);
-    }
+    this.targetScore = displayScore;
+
     if (this.dom.segOverallScore) this.dom.segOverallScore.textContent = (report.scoreOverall || 0).toFixed(1);
     if (this.dom.segEarlyScore) this.dom.segEarlyScore.textContent = (report.scoreEarly || 0).toFixed(1);
     if (this.dom.segDedicatedScore) this.dom.segDedicatedScore.textContent = (report.scoreDedicated || 0).toFixed(1);
