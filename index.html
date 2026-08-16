@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Twitch Multi-Objective Algorithm Emulator | Session Analytics Edition</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%239146ff' width='100' height='100' rx='20'/><text y='70' x='20' font-size='60' font-weight='bold' fill='white'>T</text></svg>" />
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <div class="nav-logo-icon">T</div>
+        <div>
+          <span class="nav-title">Twitch Ranking Algorithm Emulator</span>
+          <span class="nav-subtitle">Session Analytics Edition • arXiv:2608.04455v1</span>
+        </div>
+      </div>
+
+      <div class="nav-tabs">
+        <button class="nav-tab-btn active" data-view="split">Двойной вид</button>
+        <button class="nav-tab-btn" data-view="hud-only">Только HUD</button>
+        <button class="nav-tab-btn" data-view="controls-only">Панель управления</button>
+        <button class="nav-tab-btn" data-view="analytics">📈 Аналитика сессии</button>
+      </div>
+
+      <div>
+        <a href="overlay.html" target="_blank" class="obs-link-btn" title="Открыть чистый оверлей для OBS Studio">
+          <span>🎥 OBS Browser Source</span>
+          <span>↗</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content" id="mainContent">
+      <!-- Left Column: HUD Overlay Preview -->
+      <section id="hudContainer"></section>
+
+      <!-- Right Column: Control Center & MMoE Inspector -->
+      <section id="controlsContainer"></section>
+
+      <!-- Full Width: Session Analytics & Cardiogram -->
+      <section id="analyticsContainer" style="display: none; grid-column: 1 / -1;"></section>
+    </main>
+  </div>
+
+  <!-- Core Algorithm Scripts -->
+  <script src="js/engine/fsm.js"></script>
+  <script src="js/engine/mmoe.js"></script>
+  <script src="js/engine/vst.js"></script>
+  <script src="js/engine/twitch_connector.js"></script>
+  <script src="js/engine/feature_extractor.js"></script>
+  <script src="js/engine/category_benchmark.js"></script>
+  <script src="js/engine/session_recorder.js"></script>
+  <script src="js/engine/stream_state.js"></script>
+
+  <!-- UI & Controls Scripts -->
+  <script src="js/ui/hud.js"></script>
+  <script src="js/ui/controls.js"></script>
+  <script src="js/ui/analytics_view.js"></script>
+
+  <!-- App Bootstrap -->
+  <script src="js/app.js"></script>
+</body>
+</html>

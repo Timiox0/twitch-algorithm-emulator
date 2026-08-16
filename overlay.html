@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OBS Twitch Ranking HUD Overlay (Persistent Session)</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    body {
+      background: transparent !important;
+      margin: 0;
+      padding: 16px;
+      display: inline-block;
+      overflow: hidden;
+    }
+    #hudContainer {
+      width: 380px;
+    }
+  </style>
+</head>
+<body class="obs-overlay-mode">
+  <div id="hudContainer"></div>
+
+  <!-- Core Algorithm Scripts -->
+  <script src="js/engine/fsm.js"></script>
+  <script src="js/engine/mmoe.js"></script>
+  <script src="js/engine/vst.js"></script>
+  <script src="js/engine/twitch_connector.js"></script>
+  <script src="js/engine/feature_extractor.js"></script>
+  <script src="js/engine/category_benchmark.js"></script>
+  <script src="js/engine/stream_state.js"></script>
+
+  <!-- HUD Component -->
+  <script src="js/ui/hud.js"></script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const stateManager = new StreamStateManager();
+      const hudContainer = document.getElementById('hudContainer');
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const channel = urlParams.get('channel');
+      const preset = urlParams.get('preset');
+
+      const hud = new StreamHUD(hudContainer, {
+        isCompact: true,
+        showAdvice: true
+      });
+
+      stateManager.addListener((report) => {
+        hud.update(report);
+      });
+
+      if (channel) {
+        stateManager.connectLiveChannel(channel);
+      } else if (preset) {
+        stateManager.applyPreset(preset);
+      }
+      // If neither is in URL, StreamStateManager has already restored the saved channel/mode from localStorage
+    });
+  </script>
+</body>
+</html>
