@@ -25,8 +25,8 @@ class CategoryBenchmarkEngine {
     const currentScore = rankingReport.scoreOverall || 50;
     const gameName = categoryData?.game || rankingReport.state?.meta?.game || 'Just Chatting';
     
+    let peerRivals = [...(categoryData?.peerRivals || [])];
     const globalStreams = categoryData?.globalTop || categoryData?.streams || [];
-    const peerRivals = categoryData?.peerRivals || [];
 
     // 1. Determine League & Progression
     const currentLeague = this.getLeague(currentCCU);
@@ -35,26 +35,55 @@ class CategoryBenchmarkEngine {
 
     let leagueProgressPct = 100;
     if (nextLeague) {
-      const range = currentLeague.maxCCU - currentLeague.minCCU;
-      const progress = currentCCU - currentLeague.minCCU;
+      const range = Math.max(1, currentLeague.maxCCU - currentLeague.minCCU);
+      const progress = Math.max(0, currentCCU - currentLeague.minCCU);
       leagueProgressPct = Math.min(Math.max(Math.round((progress / range) * 100), 5), 98);
     }
 
-    // 2. Find position in peer rivals list
-    const currentDivisionRank = peerRivals.findIndex(r => r.isCurrent || (r.channel && r.channel.toLowerCase() === currentChannel.toLowerCase())) + 1 || (peerRivals.length > 0 ? Math.ceil(peerRivals.length / 2) : 3);
+    // 2. Ensure current user is in peer rivals list
+    const userExists = peerRivals.some(r => r.isCurrent || (r.channel && r.channel.toLowerCase() === currentChannel.toLowerCase()));
+    if (!userExists && currentChannel) {
+      peerRivals.push({
+        isCurrent: true,
+        channel: currentChannel,
+        displayName: currentChannel,
+        viewersCount: currentCCU,
+        viewers: currentCCU,
+        title: rankingReport.state?.meta?.title || 'Ваш эфир',
+        game: gameName
+      });
+    }
+
+    // Sort descending by viewers
+    peerRivals.sort((a, b) => (b.viewersCount ?? b.viewers ?? 0) - (a.viewersCount ?? a.viewers ?? 0));
+
+    // Find exact position of user
+    const myPos = peerRivals.findIndex(r => r.isCurrent || (r.channel && r.channel.toLowerCase() === currentChannel.toLowerCase()));
+    const currentDivisionRank = myPos !== -1 ? myPos + 1 : 1;
 
     // 3. Competitor directly above
-    const rivalAbove = currentDivisionRank > 1 ? peerRivals[currentDivisionRank - 2] : null;
+    const rivalAbove = myPos > 0 ? peerRivals[myPos - 1] : null;
     let achievableGoalText = '';
 
     if (rivalAbove && !rivalAbove.isCurrent) {
       const rivalCCU = rivalAbove.viewersCount ?? rivalAbove.viewers ?? 0;
-      const ccuDelta = Math.max(1, rivalCCU - currentCCU);
-      const chatDelta = (ccuDelta * 0.04).toFixed(1);
-      achievableGoalText = `🎯 Ближайшая цель: обогнать ${rivalAbove.displayName} (+${ccuDelta} CCU или +${chatDelta} msg/s в чате)`;
+      const rawDelta = rivalCCU - currentCCU;
+
+      // If rival above is within reasonable distance (< 150 CCU)
+      if (rawDelta <= 150 && rawDelta > 0) {
+        const chatDelta = (rawDelta * 0.04).toFixed(1);
+        achievableGoalText = `🎯 Ближайшая цель: обогнать ${rivalAbove.displayName} (+${rawDelta} CCU или +${chatDelta} msg/s в чате)`;
+      } else if (rawDelta > 150) {
+        // Attainable step goal within the league
+        const stepTarget = Math.max(1, Math.min(Math.ceil(currentCCU * 0.3) + 4, 25));
+        const chatDelta = (stepTarget * 0.04).toFixed(1);
+        achievableGoalText = `🎯 Ближайшая цель: +${stepTarget} CCU для роста в Лиге ${currentLeague.name} (+${chatDelta} msg/s в чате)`;
+      } else {
+        achievableGoalText = `🎯 Держите текущий темп удержания для закрепления позиции!`;
+      }
     } else {
       if (nextLeague) {
-        const toNext = nextLeague.minCCU - currentCCU;
+        const toNext = Math.max(1, nextLeague.minCCU - currentCCU);
         achievableGoalText = `👑 Вы лидер группы! Осталось +${toNext} CCU до перехода в Лигу ${nextLeague.name}`;
       } else {
         achievableGoalText = `👑 Топ позиция в группе! Алгоритмический охват на максимуме.`;

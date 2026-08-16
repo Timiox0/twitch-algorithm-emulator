@@ -210,9 +210,11 @@ class StreamStateManager {
 
         this._recomputeLiveFeatures();
 
-        // Refresh category peers every 3rd poll (every 6 seconds)
+        // Refresh category peers immediately on category change or every 6 seconds
         this.categoryPollCounter++;
-        if (data.game && this.categoryPollCounter % 3 === 0) {
+        const isGameChanged = data.game && data.game !== this._lastCategoryGame;
+        if (data.game && (isGameChanged || this.categoryPollCounter % 3 === 0)) {
+          this._lastCategoryGame = data.game;
           this._fetchCategoryData(data.game, currentCCU);
         }
       }

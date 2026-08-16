@@ -201,11 +201,31 @@ async function fetchTwitchCategoryStreams(gameName, targetCCU = 0, currentChanne
     peerRivals = allStreams.slice(startIdx, startIdx + 8);
   } else if (numCCU > 0) {
     let closestIdx = allStreams.findIndex(s => s.viewersCount <= numCCU);
-    if (closestIdx === -1) closestIdx = allStreams.length;
-    const startIdx = Math.max(0, closestIdx - 4);
-    peerRivals = allStreams.slice(startIdx, startIdx + 8);
+    if (closestIdx !== -1) {
+      const startIdx = Math.max(0, closestIdx - 4);
+      peerRivals = allStreams.slice(startIdx, startIdx + 8);
+    } else {
+      // In large categories where top 100 has higher CCU, take bottom streams
+      peerRivals = allStreams.slice(-8);
+    }
   } else {
     peerRivals = allStreams.slice(-8);
+  }
+
+  // Ensure current streamer is included in peer rivals list
+  const userInList = peerRivals.some(s => s.channel.toLowerCase() === currentChannel.toLowerCase());
+  if (!userInList && currentChannel) {
+    peerRivals.push({
+      rank: userRank > 0 ? userRank : (allStreams.length > 0 ? allStreams.length + 1 : 1),
+      channel: currentChannel,
+      displayName: currentChannel,
+      viewersCount: numCCU,
+      viewers: numCCU,
+      title: 'Ваша трансляция',
+      game: gameName,
+      isCurrent: true
+    });
+    peerRivals.sort((a, b) => (b.viewersCount || 0) - (a.viewersCount || 0));
   }
 
   return {
