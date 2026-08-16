@@ -367,6 +367,15 @@ setInterval(() => {
   }
 }, 15000);
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n⚠️ ВНИМАНИЕ: Порт ${PORT} уже занят другим запущенным процессом!`);
+    console.error(`💡 Решение: Запустите start_widget.bat — он автоматически освободит порт, либо закройте предыдущее окно терминала.\n`);
+  } else {
+    console.error(`\n❌ Ошибка сервера:`, err.message);
+  }
+});
+
 server.listen(PORT, () => {
   console.log(`\n============================================================`);
   console.log(`🚀 Twitch Ranking Algorithm Emulator (Real-Time State Sync Engine)`);
