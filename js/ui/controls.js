@@ -517,8 +517,8 @@ class StreamControls {
           <td class="cat-chan-col">
             <strong>${s.displayName}</strong> ${isCurrent ? '<span class="you-badge">(Вы)</span>' : ''}
           </td>
-          <td class="cat-ccu-col">${Number(s.viewers).toLocaleString()}</td>
-          <td class="cat-title-col">${s.title || 'Live Stream'}</td>
+          <td class="cat-ccu-col">${Number(s.viewersCount ?? s.viewers ?? 0).toLocaleString()}</td>
+          <td class="cat-title-col" title="${s.title || ''}">${s.title || 'Live Stream'}</td>
         </tr>
       `;
     }).join('');

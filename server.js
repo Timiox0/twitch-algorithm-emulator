@@ -185,6 +185,7 @@ async function fetchTwitchCategoryStreams(gameName, targetCCU = 0, currentChanne
       channel: s.broadcaster?.login || '',
       displayName: s.broadcaster?.displayName || s.broadcaster?.login || '',
       viewersCount: s.viewersCount || 0,
+      viewers: s.viewersCount || 0,
       title: s.title || '',
       game: s.game?.name || gameName
     };

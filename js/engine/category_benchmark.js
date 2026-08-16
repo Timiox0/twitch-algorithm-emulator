@@ -48,7 +48,8 @@ class CategoryBenchmarkEngine {
     let achievableGoalText = '';
 
     if (rivalAbove && !rivalAbove.isCurrent) {
-      const ccuDelta = Math.max(1, rivalAbove.viewers - currentCCU);
+      const rivalCCU = rivalAbove.viewersCount ?? rivalAbove.viewers ?? 0;
+      const ccuDelta = Math.max(1, rivalCCU - currentCCU);
       const chatDelta = (ccuDelta * 0.04).toFixed(1);
       achievableGoalText = `🎯 Ближайшая цель: обогнать ${rivalAbove.displayName} (+${ccuDelta} CCU или +${chatDelta} msg/s в чате)`;
     } else {
