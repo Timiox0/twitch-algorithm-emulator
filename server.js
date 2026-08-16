@@ -137,64 +137,11 @@ async function fetchTwitchStreamInfo(channelLogin) {
 }
 
 /**
- * Generates calibrated Division Rivals when category page has only giant streams
- */
-function generateDivisionBracket(gameName, userCCU, currentChannel) {
-  const baseCCU = Math.max(1, Number(userCCU) || 15);
-  const sampleNames = ['vibe_stream', 'nexus_play', 'cyber_cast', 'chill_station', 'shadow_live', 'pixel_pro', 'aurora_gaming'];
-  
-  // Deltas around user CCU
-  const deltas = [+12, +7, +3, -4, -8, -13];
-  const list = [];
-
-  // Add higher rivals
-  deltas.filter(d => d > 0).forEach((d, idx) => {
-    const ccu = Math.max(1, baseCCU + d);
-    list.push({
-      channel: sampleNames[idx] || `rival_${idx + 1}`,
-      displayName: (sampleNames[idx] || `rival_${idx + 1}`).replace('_', ' ').toUpperCase(),
-      viewersCount: ccu,
-      viewers: ccu,
-      title: `${gameName} grind & community`,
-      game: gameName
-    });
-  });
-
-  // Add User
-  list.push({
-    channel: currentChannel || 'you',
-    displayName: currentChannel || 'Ваш Стрим',
-    viewersCount: baseCCU,
-    viewers: baseCCU,
-    title: 'Ваша трансляция',
-    game: gameName,
-    isCurrent: true
-  });
-
-  // Add lower rivals
-  deltas.filter(d => d < 0).forEach((d, idx) => {
-    const ccu = Math.max(1, baseCCU + d);
-    list.push({
-      channel: sampleNames[idx + 3] || `rival_${idx + 4}`,
-      displayName: (sampleNames[idx + 3] || `rival_${idx + 4}`).replace('_', ' ').toUpperCase(),
-      viewersCount: ccu,
-      viewers: ccu,
-      title: `${gameName} stream`,
-      game: gameName
-    });
-  });
-
-  list.sort((a, b) => (b.viewersCount || 0) - (a.viewersCount || 0));
-  return list.map((item, idx) => ({ ...item, rank: idx + 1 }));
-}
-
-/**
- * Fetches real active streams in a category with realistic weight-class matchmaking
+ * Fetches 100% REAL active Twitch streams across the entire category spectrum (Top, Mid, Low, Recent)
  */
 async function fetchTwitchCategoryStreams(gameName, targetCCU = 0, currentChannel = '') {
-  const query = `query CategoryStreams($game: String!) {
-    game(name: $game) {
-      id
+  const query = `query TriCategoryStreams($name: String!) {
+    top: game(name: $name) {
       name
       viewersCount
       streams(first: 100) {
@@ -203,7 +150,42 @@ async function fetchTwitchCategoryStreams(gameName, targetCCU = 0, currentChanne
             id
             viewersCount
             broadcaster {
-              id
+              login
+              displayName
+            }
+            title
+            game {
+              name
+            }
+          }
+        }
+      }
+    }
+    low: game(name: $name) {
+      streams(first: 100, options: { sort: VIEWER_COUNT_ASC }) {
+        edges {
+          node {
+            id
+            viewersCount
+            broadcaster {
+              login
+              displayName
+            }
+            title
+            game {
+              name
+            }
+          }
+        }
+      }
+    }
+    recent: game(name: $name) {
+      streams(first: 100, options: { sort: RECENT }) {
+        edges {
+          node {
+            id
+            viewersCount
+            broadcaster {
               login
               displayName
             }
@@ -217,67 +199,48 @@ async function fetchTwitchCategoryStreams(gameName, targetCCU = 0, currentChanne
     }
   }`;
 
-  const gqlRes = await queryTwitchGQL('CategoryStreams', query, { game: gameName });
-  const gameData = gqlRes?.[0]?.data?.game;
+  const gqlRes = await queryTwitchGQL('TriCategoryStreams', query, { name: gameName });
+  const topEdges = gqlRes?.[0]?.data?.top?.streams?.edges || [];
+  const lowEdges = gqlRes?.[0]?.data?.low?.streams?.edges || [];
+  const recEdges = gqlRes?.[0]?.data?.recent?.streams?.edges || [];
 
-  if (!gameData || !gameData.streams || !gameData.streams.edges) {
-    return {
-      game: gameName,
-      totalCategoryViewers: 0,
-      streamsCount: 0,
-      globalTop: [],
-      peerRivals: generateDivisionBracket(gameName, targetCCU, currentChannel)
-    };
-  }
+  const streamMap = new Map();
 
-  const allStreams = gameData.streams.edges.map((edge, index) => {
+  [...topEdges, ...lowEdges, ...recEdges].forEach(edge => {
     const s = edge.node;
-    return {
-      rank: index + 1,
-      channel: s.broadcaster?.login || '',
-      displayName: s.broadcaster?.displayName || s.broadcaster?.login || '',
-      viewersCount: s.viewersCount || 0,
-      viewers: s.viewersCount || 0,
-      title: s.title || '',
-      game: s.game?.name || gameName
-    };
+    if (s && s.broadcaster && s.broadcaster.login) {
+      streamMap.set(s.broadcaster.login.toLowerCase(), {
+        channel: s.broadcaster.login,
+        displayName: s.broadcaster.displayName || s.broadcaster.login,
+        viewersCount: s.viewersCount || 0,
+        viewers: s.viewersCount || 0,
+        title: s.title || '',
+        game: s.game?.name || gameName
+      });
+    }
   });
 
-  const globalTop = allStreams.slice(0, 10);
-  let userRank = allStreams.findIndex(s => s.channel.toLowerCase() === currentChannel.toLowerCase()) + 1;
+  const allRealStreams = Array.from(streamMap.values());
+  allRealStreams.sort((a, b) => (b.viewersCount || 0) - (a.viewersCount || 0));
+
+  const globalTop = allRealStreams.slice(0, 10);
   const numCCU = Number(targetCCU) || 0;
 
-  let peerRivals = [];
+  // Filter positive streams (viewers > 0)
+  const activeStreams = allRealStreams.filter(s => s.viewersCount > 0);
+  const candidatePool = activeStreams.length >= 4 ? activeStreams : allRealStreams;
 
-  if (userRank > 0) {
-    // User is in the top 100 list! Slice real neighbors
-    const startIdx = Math.max(0, userRank - 4);
-    peerRivals = allStreams.slice(startIdx, startIdx + 8);
-  } else if (numCCU > 0) {
-    // Find streams close to user CCU (within realistic 2x range)
-    const closestIdx = allStreams.findIndex(s => s.viewersCount <= numCCU);
-    
-    if (closestIdx !== -1) {
-      const startIdx = Math.max(0, closestIdx - 4);
-      peerRivals = allStreams.slice(startIdx, startIdx + 8);
-    } else {
-      // If lowest stream on page 1 is > 2x the user's CCU, generate realistic division bracket
-      const lowestCCU = allStreams[allStreams.length - 1]?.viewersCount || 1000;
-      if (lowestCCU > Math.max(numCCU * 2.5, 120)) {
-        peerRivals = generateDivisionBracket(gameName, numCCU, currentChannel);
-      } else {
-        peerRivals = allStreams.slice(-8);
-      }
-    }
-  } else {
-    peerRivals = allStreams.slice(-8);
-  }
+  // Find exact position where user CCU fits among real streamers
+  let closestIdx = candidatePool.findIndex(s => s.viewersCount <= numCCU);
+  if (closestIdx === -1) closestIdx = candidatePool.length;
+
+  const startIdx = Math.max(0, closestIdx - 4);
+  let peerRivals = candidatePool.slice(startIdx, startIdx + 8);
 
   // Ensure current streamer is included in peer rivals list
   const userInList = peerRivals.some(s => s.channel.toLowerCase() === currentChannel.toLowerCase());
   if (!userInList && currentChannel) {
     peerRivals.push({
-      rank: userRank > 0 ? userRank : (allStreams.length > 0 ? allStreams.length + 1 : 1),
       channel: currentChannel,
       displayName: currentChannel,
       viewersCount: numCCU,
@@ -289,10 +252,12 @@ async function fetchTwitchCategoryStreams(gameName, targetCCU = 0, currentChanne
     peerRivals.sort((a, b) => (b.viewersCount || 0) - (a.viewersCount || 0));
   }
 
+  peerRivals = peerRivals.map((s, idx) => ({ ...s, rank: idx + 1 }));
+
   return {
-    game: gameData.name || gameName,
-    totalCategoryViewers: gameData.viewersCount || 0,
-    streamsCount: allStreams.length,
+    game: gameName,
+    totalCategoryViewers: gqlRes?.[0]?.data?.top?.viewersCount || 0,
+    streamsCount: allRealStreams.length,
     globalTop,
     peerRivals
   };
