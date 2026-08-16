@@ -17,23 +17,19 @@ class MMoEModel {
     this.tasks = ['lmp', 'chat', 'follow', 'spend'];
 
     // Specialized Expert Focus Profiles (Learned representations)
-    // Expert 0: "Watch Time / Content Immersion" (strong on LMP & retention)
-    // Expert 1: "Social & Community Bonding" (strong on Chat & Follow)
-    // Expert 2: "Creator Loyalty & Fanhood" (strong on Follow & Spend)
-    // Expert 3: "Hype & Monetization Triggers" (strong on Spend & Chat spikes)
     this.expertProfiles = [
-      { name: 'Content Immersion', lmpW: 0.65, chatW: 0.15, followW: 0.10, spendW: 0.10 },
-      { name: 'Community Bonding', lmpW: 0.20, chatW: 0.50, followW: 0.20, spendW: 0.10 },
-      { name: 'Creator Loyalty',   lmpW: 0.25, chatW: 0.15, followW: 0.40, spendW: 0.20 },
-      { name: 'Hype & Monetization', lmpW: 0.10, chatW: 0.25, followW: 0.15, spendW: 0.50 }
+      { name: 'Content Immersion', lmpW: 0.70, chatW: 0.10, followW: 0.10, spendW: 0.10 },
+      { name: 'Community Bonding', lmpW: 0.15, chatW: 0.60, followW: 0.15, spendW: 0.10 },
+      { name: 'Creator Loyalty',   lmpW: 0.20, chatW: 0.15, followW: 0.50, spendW: 0.15 },
+      { name: 'Hype & Monetization', lmpW: 0.05, chatW: 0.15, followW: 0.10, spendW: 0.70 }
     ];
 
     // Task-specific gating weights over input feature dimensions
     this.gateWeights = {
-      lmp:    [0.45, 0.20, 0.25, 0.10], // Preferences over [E0, E1, E2, E3]
-      chat:   [0.10, 0.55, 0.15, 0.20],
-      follow: [0.15, 0.25, 0.50, 0.10],
-      spend:  [0.05, 0.15, 0.30, 0.50]
+      lmp:    [0.55, 0.15, 0.20, 0.10],
+      chat:   [0.10, 0.65, 0.15, 0.10],
+      follow: [0.15, 0.20, 0.55, 0.10],
+      spend:  [0.05, 0.10, 0.15, 0.70]
     };
   }
 
@@ -55,18 +51,24 @@ class MMoEModel {
     const {
       avgWatchDuration = 0.5,     // 0..1
       chatterRatio = 0.3,         // 0..1 (chat messages / active viewers)
+      chatReactivity = 0.3,       // 0..1 (normalized velocity)
       historicalLoyalty = 0.4,    // 0..1 (14-day aggregated community score)
-      monetizationIntensity = 0.2 // 0..1 (bits, sub trains, emotes)
+      monetizationIntensity = 0.05, // 0..1 (bits, sub trains)
+      hookVelocity = 0.5
     } = features;
 
-    // Expert 0 Activation (Content Immersion)
-    const e0 = 0.7 * avgWatchDuration + 0.3 * (1 - chatterRatio * 0.5);
-    // Expert 1 Activation (Community Bonding)
-    const e1 = 0.6 * chatterRatio + 0.4 * historicalLoyalty;
-    // Expert 2 Activation (Creator Loyalty)
-    const e2 = 0.5 * historicalLoyalty + 0.3 * avgWatchDuration + 0.2 * chatterRatio;
-    // Expert 3 Activation (Hype & Monetization - strictly conditioned on actual monetization)
-    const e3 = 0.85 * monetizationIntensity + 0.15 * (chatterRatio * historicalLoyalty);
+    // Expert 0 Activation (Content Immersion - Watch Duration)
+    const e0 = 0.75 * avgWatchDuration + 0.25 * (1 - Math.abs(chatterRatio - 0.25));
+
+    // Expert 1 Activation (Community Bonding - Real Chat Rate & Chatter Ratio)
+    const activeChatScore = 0.55 * chatterRatio + 0.45 * (chatReactivity || 0.02);
+    const e1 = 0.85 * activeChatScore + 0.15 * historicalLoyalty;
+
+    // Expert 2 Activation (Creator Loyalty - Community depth & follow velocity)
+    const e2 = 0.50 * historicalLoyalty + 0.30 * (chatterRatio + hookVelocity) / 2 + 0.20 * avgWatchDuration;
+
+    // Expert 3 Activation (Hype & Monetization - strictly dependent on actual monetization)
+    const e3 = 0.90 * monetizationIntensity + 0.10 * (chatterRatio * historicalLoyalty);
 
     return [
       Math.min(Math.max(e0, 0.01), 0.99),
@@ -93,10 +95,10 @@ class MMoEModel {
       // Feature modulation on gate logits
       const logits = baseWeights.map((w, idx) => {
         let boost = 0;
-        if (task === 'lmp' && idx === 0) boost += (features.avgWatchDuration || 0.5) * 0.8;
-        if (task === 'chat' && idx === 1) boost += (features.chatterRatio || 0.3) * 0.9;
-        if (task === 'follow' && idx === 2) boost += (features.historicalLoyalty || 0.4) * 0.7;
-        if (task === 'spend' && idx === 3) boost += (features.monetizationIntensity || 0.1) * 1.5;
+        if (task === 'lmp' && idx === 0) boost += (features.avgWatchDuration || 0.5) * 1.2;
+        if (task === 'chat' && idx === 1) boost += (features.chatterRatio || 0.1) * 1.5;
+        if (task === 'follow' && idx === 2) boost += (features.historicalLoyalty || 0.4) * 0.9;
+        if (task === 'spend' && idx === 3) boost += (features.monetizationIntensity || 0.05) * 2.0;
         return (w * 2.5) + boost;
       });
 
@@ -112,13 +114,13 @@ class MMoEModel {
       // Task tower non-linear output
       let prob;
       if (task === 'lmp') {
-        prob = 1 / (1 + Math.exp(-5.5 * (taskMixture - 0.42)));
+        prob = 1 / (1 + Math.exp(-6.5 * (taskMixture - 0.48)));
       } else if (task === 'chat') {
-        prob = 1 / (1 + Math.exp(-6.0 * (taskMixture - 0.38)));
+        prob = 1 / (1 + Math.exp(-7.5 * (taskMixture - 0.42)));
       } else if (task === 'follow') {
-        prob = 1 / (1 + Math.exp(-6.5 * (taskMixture - 0.35)));
+        prob = 1 / (1 + Math.exp(-6.5 * (taskMixture - 0.45)));
       } else { // spend (strict threshold requiring real monetary activity)
-        prob = 1 / (1 + Math.exp(-8.0 * (taskMixture - 0.50)));
+        prob = 1 / (1 + Math.exp(-8.5 * (taskMixture - 0.48)));
       }
 
       predictions[task] = Math.min(Math.max(prob, 0.01), 0.99);

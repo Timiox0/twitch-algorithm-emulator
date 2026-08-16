@@ -11,9 +11,9 @@ class FreshSignalModel {
   constructor() {
     // Calibrated feature weights representing the 4-layer FC network
     this.weights = {
-      hookVelocity: 0.35,     // Current viewer influx & retention in first 1-3 mins
+      hookVelocity: 0.40,     // Current viewer influx & momentum in first 1-3 mins
       chatReactivity: 0.25,   // Immediate chatter response rate to streamer speech/actions
-      streamerEnergy: 0.20,   // Dynamic audio/visual action score
+      streamerEnergy: 0.15,   // Dynamic audio/visual action score
       visualClarity: 0.10,    // High resolution/FPS/clean layout
       titleClickability: 0.10 // Category + title CTR momentum
     };
@@ -42,8 +42,8 @@ class FreshSignalModel {
       titleClickability * this.weights.titleClickability
     );
 
-    // Sigmoid mapping centered around typical baseline
-    const p_smp = 1 / (1 + Math.exp(-6 * (z - 0.45)));
+    // Calibrated sigmoid centered around standard live baseline (0.46)
+    const p_smp = 1 / (1 + Math.exp(-6.5 * (z - 0.46)));
     return Math.min(Math.max(p_smp, 0.01), 0.99);
   }
 }
