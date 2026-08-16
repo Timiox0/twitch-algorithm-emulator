@@ -56,8 +56,8 @@
           showAdvice: layoutMode === 'full'
         });
 
+        // 1. Standalone fallback state manager
         const stateManager = new StreamStateManager();
-
         stateManager.addListener((report) => {
           hud.update(report);
         });
@@ -68,7 +68,45 @@
           stateManager.applyPreset(preset);
         }
 
-        // Real-time live synchronization between Dashboard and OBS tabs
+        // 2. High-Speed Server-Sent Events (SSE) Live Sync
+        // Receives exact state from the Master Dashboard in real time
+        let sseConnected = false;
+        try {
+          const sse = new EventSource('/api/state/events');
+          sse.onmessage = (evt) => {
+            if (!evt.data) return;
+            try {
+              const report = JSON.parse(evt.data);
+              if (report && report.scoreOverall !== undefined) {
+                sseConnected = true;
+                hud.update(report);
+              }
+            } catch (err) {}
+          };
+
+          sse.onerror = () => {
+            sseConnected = false;
+          };
+        } catch (e) {
+          console.warn('SSE not supported, falling back to local engine');
+        }
+
+        // 3. Fallback High-Frequency Poll for OBS Studio CEF
+        setInterval(async () => {
+          if (!sseConnected) {
+            try {
+              const res = await fetch(`/api/state/latest?_t=${Date.now()}`);
+              if (res.ok) {
+                const report = await res.json();
+                if (report && report.scoreOverall !== undefined) {
+                  hud.update(report);
+                }
+              }
+            } catch (e) {}
+          }
+        }, 500);
+
+        // 4. Cross-tab storage listener
         window.addEventListener('storage', (e) => {
           if (e.key === 'twitch_algo_session_v1' && e.newValue) {
             try {

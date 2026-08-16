@@ -485,6 +485,19 @@ class StreamStateManager {
     for (const fn of this.listeners) {
       fn(this.smoothedReport);
     }
+
+    // Broadcast to Central Server Hub for instant zero-latency OBS sync
+    const now = Date.now();
+    if (this.smoothedReport && (now - (this._lastBroadcastTime || 0) > 200)) {
+      this._lastBroadcastTime = now;
+      if (typeof fetch !== 'undefined') {
+        fetch('/api/state/broadcast', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.smoothedReport)
+        }).catch(() => {});
+      }
+    }
   }
 }
 

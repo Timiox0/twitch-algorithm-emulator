@@ -21,6 +21,22 @@ const httpsAgent = new https.Agent({
   keepAliveMsecs: 30000
 });
 
+// Central Real-Time State Hub (Single Source of Truth for OBS and Dashboard)
+let globalServerReport = null;
+let sseClients = [];
+
+function broadcastReportToSse(report) {
+  globalServerReport = report;
+  const payload = `data: ${JSON.stringify(report)}\n\n`;
+  for (let i = sseClients.length - 1; i >= 0; i--) {
+    try {
+      sseClients[i].write(payload);
+    } catch (e) {
+      sseClients.splice(i, 1);
+    }
+  }
+}
+
 /**
  * Helper to execute Twitch GQL queries with keep-alive
  */
@@ -73,72 +89,75 @@ async function fetchTwitchStreamInfo(channelLogin) {
       stream {
         id
         viewersCount
-        createdAt
-        title
+        type
         game {
           id
           name
-          displayName
         }
+        title
+        createdAt
       }
     }
   }`;
 
-  const json = await queryTwitchGQL('StreamMetadata', query, { channelLogin: cleanLogin });
-  const userData = json[0]?.data?.user;
-  if (!userData) {
-    return { isLive: false, error: 'User not found', channel: cleanLogin, timestamp: Date.now() };
+  const gqlRes = await queryTwitchGQL('StreamMetadata', query, { channelLogin: cleanLogin });
+  const user = gqlRes?.[0]?.data?.user;
+
+  if (!user) {
+    return {
+      channel: cleanLogin,
+      isLive: false,
+      viewersCount: 0,
+      followersCount: 0,
+      game: 'Just Chatting',
+      title: 'Channel not found or offline',
+      uptimeMinutes: 0
+    };
   }
 
-  const isLive = !!userData.stream;
-  const viewersCount = isLive ? (userData.stream.viewersCount || 0) : 0;
-  const title = isLive ? userData.stream.title : '';
-  const game = isLive ? (userData.stream.game?.name || userData.stream.game?.displayName || '') : '';
-  const startedAt = isLive ? userData.stream.createdAt : null;
-  const followersCount = userData.followers?.totalCount || 0;
+  const stream = user.stream;
+  const isLive = Boolean(stream && stream.type === 'live');
 
   let uptimeMinutes = 0;
-  if (isLive && startedAt) {
-    const diffMs = Date.now() - new Date(startedAt).getTime();
-    uptimeMinutes = Math.max(1, Math.round(diffMs / 60000));
+  if (isLive && stream.createdAt) {
+    const started = new Date(stream.createdAt).getTime();
+    uptimeMinutes = Math.max(0, Math.floor((Date.now() - started) / 60000));
   }
 
   return {
-    isLive,
-    channel: userData.login,
-    displayName: userData.displayName,
-    viewersCount,
-    title,
-    game,
-    startedAt,
-    uptimeMinutes,
-    followersCount,
-    timestamp: Date.now()
+    channel: user.login,
+    displayName: user.displayName,
+    isLive: isLive,
+    viewersCount: isLive ? stream.viewersCount : 0,
+    followersCount: user.followers?.totalCount || 0,
+    game: stream?.game?.name || 'Just Chatting',
+    title: stream?.title || (isLive ? 'Live Stream' : 'Offline'),
+    uptimeMinutes: uptimeMinutes
   };
 }
 
 /**
- * Fetches 100 real live streams in category and extracts both Global Top and Local Peer Rivals
+ * Fetches real active streams in a category
  */
 async function fetchTwitchCategoryStreams(gameName, targetCCU = 0, currentChannel = '') {
-  if (!gameName) return { game: '', streams: [], peerRivals: [] };
-  
-  const slug = gameName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-  const query = `query GetGameStreams100($slug: String!) {
-    game(slug: $slug) {
+  const query = `query CategoryStreams($game: String!) {
+    game(name: $game) {
       id
       name
-      displayName
       viewersCount
-      streams(first: 100, options: { sort: VIEWER_COUNT }) {
+      streams(first: 100) {
         edges {
           node {
             id
             viewersCount
-            title
             broadcaster {
+              id
               login
               displayName
+            }
+            title
+            game {
+              name
             }
           }
         }
@@ -146,57 +165,52 @@ async function fetchTwitchCategoryStreams(gameName, targetCCU = 0, currentChanne
     }
   }`;
 
-  const json = await queryTwitchGQL('GetGameStreams100', query, { slug });
-  const gameData = json[0]?.data?.game;
-  if (!gameData) {
-    return { game: gameName, slug, totalCategoryViewers: 0, globalTop: [], peerRivals: [] };
+  const gqlRes = await queryTwitchGQL('CategoryStreams', query, { game: gameName });
+  const gameData = gqlRes?.[0]?.data?.game;
+
+  if (!gameData || !gameData.streams || !gameData.streams.edges) {
+    return {
+      game: gameName,
+      totalCategoryViewers: 0,
+      streamsCount: 0,
+      globalTop: [],
+      peerRivals: []
+    };
   }
 
-  const allStreams = gameData.streams?.edges?.map(e => ({
-    channel: e.node.broadcaster.login,
-    displayName: e.node.broadcaster.displayName,
-    viewers: e.node.viewersCount,
-    title: e.node.title
-  })) || [];
+  const allStreams = gameData.streams.edges.map((edge, index) => {
+    const s = edge.node;
+    return {
+      rank: index + 1,
+      channel: s.broadcaster?.login || '',
+      displayName: s.broadcaster?.displayName || s.broadcaster?.login || '',
+      viewersCount: s.viewersCount || 0,
+      title: s.title || '',
+      game: s.game?.name || gameName
+    };
+  });
 
-  const globalTop = allStreams.slice(0, 10).map((s, idx) => ({ ...s, rank: idx + 1 }));
+  const globalTop = allStreams.slice(0, 10);
+  let userRank = allStreams.findIndex(s => s.channel.toLowerCase() === currentChannel.toLowerCase()) + 1;
+  const numCCU = Number(targetCCU) || 0;
 
-  // Find real online peer rivals around targetCCU
-  const safeChannel = (currentChannel || '').toLowerCase();
-  const ccu = Math.max(0, parseInt(targetCCU, 10) || 0);
-
-  const otherStreams = allStreams.filter(s => s.channel.toLowerCase() !== safeChannel);
-  
-  // Real streamers with CCU >= targetCCU (closest 2 above)
-  const higherStreams = otherStreams.filter(s => s.viewers >= ccu).sort((a, b) => a.viewers - b.viewers);
-  const rivalsAbove = higherStreams.slice(0, 2).reverse();
-
-  // Real streamers with CCU < targetCCU (closest 2 below)
-  const lowerStreams = otherStreams.filter(s => s.viewers < ccu).sort((a, b) => b.viewers - a.viewers);
-  const rivalsBelow = lowerStreams.slice(0, 2);
-
-  // Current channel entry
-  const currentEntry = {
-    channel: currentChannel || 'Ваш Стрим',
-    displayName: currentChannel || 'Ваш Стрим',
-    viewers: ccu,
-    title: 'Текущий прямой эфир',
-    isCurrent: true
-  };
-
-  let peerRivals = [...rivalsAbove, currentEntry, ...rivalsBelow];
-  if (peerRivals.length < 3 && allStreams.length > 0) {
-    peerRivals = allStreams.slice(0, 5).map(s => ({
-      ...s,
-      isCurrent: s.channel.toLowerCase() === safeChannel
-    }));
+  let peerRivals = [];
+  if (userRank > 0) {
+    const startIdx = Math.max(0, userRank - 4);
+    peerRivals = allStreams.slice(startIdx, startIdx + 8);
+  } else if (numCCU > 0) {
+    let closestIdx = allStreams.findIndex(s => s.viewersCount <= numCCU);
+    if (closestIdx === -1) closestIdx = allStreams.length;
+    const startIdx = Math.max(0, closestIdx - 4);
+    peerRivals = allStreams.slice(startIdx, startIdx + 8);
+  } else {
+    peerRivals = allStreams.slice(-8);
   }
 
   return {
-    game: gameData.displayName || gameData.name || gameName,
-    slug,
+    game: gameData.name || gameName,
     totalCategoryViewers: gameData.viewersCount || 0,
-    totalStreamsFound: allStreams.length,
+    streamsCount: allStreams.length,
     globalTop,
     peerRivals
   };
@@ -206,11 +220,71 @@ const server = http.createServer(async (req, res) => {
   const urlObj = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = urlObj.pathname;
 
-  // 1. API Route: /api/twitch/stream?channel=...
+  // CORS Headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // 1. API Route: Server-Sent Events (SSE) for Real-Time OBS & Dashboard Sync
+  if (pathname === '/api/state/events') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive'
+    });
+
+    res.write(': connected\n\n');
+    if (globalServerReport) {
+      res.write(`data: ${JSON.stringify(globalServerReport)}\n\n`);
+    }
+
+    sseClients.push(res);
+
+    req.on('close', () => {
+      sseClients = sseClients.filter(client => client !== res);
+    });
+    return;
+  }
+
+  // 2. API Route: POST Broadcast State Report from Master Dashboard
+  if (pathname === '/api/state/broadcast' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const report = JSON.parse(body);
+        broadcastReportToSse(report);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', sseClientsCount: sseClients.length }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // 3. API Route: GET Latest State Snapshot
+  if (pathname === '/api/state/latest') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
+    res.end(JSON.stringify(globalServerReport || {}));
+    return;
+  }
+
+  // 4. API Route: /api/twitch/stream?channel=...
   if (pathname === '/api/twitch/stream') {
     const channel = urlObj.searchParams.get('channel');
     if (!channel) {
-      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'channel parameter is required' }));
       return;
     }
@@ -219,25 +293,24 @@ const server = http.createServer(async (req, res) => {
       const data = await fetchTwitchStreamInfo(channel);
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       });
       res.end(JSON.stringify(data));
     } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
     }
     return;
   }
 
-  // 2. API Route: /api/twitch/category?game=...&ccu=...&channel=...
+  // 5. API Route: /api/twitch/category?game=...&ccu=...&channel=...
   if (pathname === '/api/twitch/category') {
     const game = urlObj.searchParams.get('game');
     const ccu = urlObj.searchParams.get('ccu') || 0;
     const channel = urlObj.searchParams.get('channel') || '';
 
     if (!game) {
-      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'game parameter is required' }));
       return;
     }
@@ -246,18 +319,17 @@ const server = http.createServer(async (req, res) => {
       const data = await fetchTwitchCategoryStreams(game, ccu, channel);
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
       });
       res.end(JSON.stringify(data));
     } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
     }
     return;
   }
 
-  // 3. Static File Serving
+  // 6. Static File Serving
   let filePath = path.join(__dirname, pathname);
   if (pathname === '/' || pathname === '') {
     filePath = path.join(__dirname, 'index.html');
@@ -277,20 +349,31 @@ const server = http.createServer(async (req, res) => {
       }
     } else {
       res.writeHead(200, {
-        'Content-Type': contentType,
-        'Access-Control-Allow-Origin': '*'
+        'Content-Type': contentType
       });
       res.end(content);
     }
   });
 });
 
+// Periodic keep-alive for all active SSE listeners (OBS Browser Sources)
+setInterval(() => {
+  for (let i = sseClients.length - 1; i >= 0; i--) {
+    try {
+      sseClients[i].write(': keepalive\n\n');
+    } catch (e) {
+      sseClients.splice(i, 1);
+    }
+  }
+}, 15000);
+
 server.listen(PORT, () => {
   console.log(`\n============================================================`);
-  console.log(`🚀 Twitch Ranking Algorithm Emulator (High-Frequency Real-Time Engine)`);
+  console.log(`🚀 Twitch Ranking Algorithm Emulator (Real-Time State Sync Engine)`);
   console.log(`============================================================`);
   console.log(`\n📊 Панель управления: http://localhost:${PORT}/`);
   console.log(`🎥 OBS Browser Source: http://localhost:${PORT}/overlay.html`);
-  console.log(`💡 OBS с каналом:     http://localhost:${PORT}/overlay.html?channel=kiryanyam`);
+  console.log(`⭕ Только круг Score: http://localhost:${PORT}/overlay.html?layout=circle`);
+  console.log(`📏 Мини-бар для OBS:   http://localhost:${PORT}/overlay.html?layout=mini`);
   console.log(`============================================================\n`);
 });
