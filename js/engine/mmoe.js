@@ -65,8 +65,8 @@ class MMoEModel {
     const e1 = 0.6 * chatterRatio + 0.4 * historicalLoyalty;
     // Expert 2 Activation (Creator Loyalty)
     const e2 = 0.5 * historicalLoyalty + 0.3 * avgWatchDuration + 0.2 * chatterRatio;
-    // Expert 3 Activation (Hype & Monetization)
-    const e3 = 0.65 * monetizationIntensity + 0.25 * chatterRatio + 0.10 * historicalLoyalty;
+    // Expert 3 Activation (Hype & Monetization - strictly conditioned on actual monetization)
+    const e3 = 0.85 * monetizationIntensity + 0.15 * (chatterRatio * historicalLoyalty);
 
     return [
       Math.min(Math.max(e0, 0.01), 0.99),
@@ -96,7 +96,7 @@ class MMoEModel {
         if (task === 'lmp' && idx === 0) boost += (features.avgWatchDuration || 0.5) * 0.8;
         if (task === 'chat' && idx === 1) boost += (features.chatterRatio || 0.3) * 0.9;
         if (task === 'follow' && idx === 2) boost += (features.historicalLoyalty || 0.4) * 0.7;
-        if (task === 'spend' && idx === 3) boost += (features.monetizationIntensity || 0.2) * 1.1;
+        if (task === 'spend' && idx === 3) boost += (features.monetizationIntensity || 0.1) * 1.5;
         return (w * 2.5) + boost;
       });
 
@@ -117,8 +117,8 @@ class MMoEModel {
         prob = 1 / (1 + Math.exp(-6.0 * (taskMixture - 0.38)));
       } else if (task === 'follow') {
         prob = 1 / (1 + Math.exp(-6.5 * (taskMixture - 0.35)));
-      } else { // spend
-        prob = 1 / (1 + Math.exp(-7.0 * (taskMixture - 0.30)));
+      } else { // spend (strict threshold requiring real monetary activity)
+        prob = 1 / (1 + Math.exp(-8.0 * (taskMixture - 0.50)));
       }
 
       predictions[task] = Math.min(Math.max(prob, 0.01), 0.99);

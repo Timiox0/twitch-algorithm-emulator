@@ -39,7 +39,8 @@ class SessionRecorder {
         if (rawEvents) {
           const parsedEvents = JSON.parse(rawEvents);
           if (Array.isArray(parsedEvents)) {
-            this.events = parsedEvents;
+            // Filter out old false positive monetization spikes
+            this.events = parsedEvents.filter(e => e.type !== 'MONETIZATION_SPIKE' || (e.desc && !e.desc.includes('p_Spend = 75%')));
           }
         }
       }
@@ -103,6 +104,10 @@ class SessionRecorder {
       p_spend: probs.spend || 0,
       ccu: meta.viewersCount || 0,
       msgPerSec: Math.round((meta.msgPerSec || 0) * 10) / 10,
+      recentSubs: meta.recentSubsCount || 0,
+      recentBits: meta.totalBitsInWindow || 0,
+      monetizationIntensity: report.state?.monetizationIntensity || 0,
+      mode: report.mode || 'SIMULATOR',
       game: meta.game || 'Just Chatting',
       title: meta.title || 'Twitch Live Stream',
       channel: report.activeChannel || 'Channel'
@@ -183,15 +188,23 @@ class SessionRecorder {
       }
     }
 
-    // 4. Sub / Monetization Spike
-    if (snapshot.p_spend >= 75) {
+    // 4. Sub / Monetization Spike (strictly require authentic subs/bits or high simulation slider)
+    const hasRealDonations = (snapshot.recentSubs > 0 || snapshot.recentBits >= 100);
+    const hasSimulatedSpike = (snapshot.mode === 'SIMULATOR' && snapshot.monetizationIntensity >= 0.70 && snapshot.p_spend >= 70);
+    const isMonetizationEvent = hasRealDonations || hasSimulatedSpike;
+
+    if (isMonetizationEvent) {
       const alreadyLogged = this.events.some(e => e.type === 'MONETIZATION_SPIKE' && Math.abs(snapshot.timestamp - e.timestamp) < 300000);
       if (!alreadyLogged) {
         this.events.push({
           type: 'MONETIZATION_SPIKE',
           icon: '👑',
           title: 'Пик платной поддержки',
-          desc: `Высокая плотность подписок и битов (p_Spend = ${snapshot.p_spend}%).`,
+          desc: snapshot.recentSubs > 0 
+            ? `Зафиксированы платные подписки (${snapshot.recentSubs} сабов).`
+            : (snapshot.recentBits > 0 
+                ? `Всплеск донатов битами (+${snapshot.recentBits} Bits).`
+                : `Высокая плотность подписок и битов (p_Spend = ${snapshot.p_spend}%).`),
           timestamp: snapshot.timestamp,
           timeFormatted: `${elapsedMin} мин`,
           score: snapshot.scoreOverall,
