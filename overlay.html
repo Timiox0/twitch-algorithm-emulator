@@ -3,14 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OBS Twitch Ranking HUD Overlay (Persistent Session)</title>
+  <title>OBS Twitch Ranking HUD Overlay</title>
   <link rel="stylesheet" href="css/style.css" />
   <style>
-    body {
+    html, body {
       background: transparent !important;
       margin: 0;
-      padding: 16px;
-      display: inline-block;
+      padding: 12px;
       overflow: hidden;
     }
     #hudContainer {
@@ -28,6 +27,7 @@
   <script src="js/engine/twitch_connector.js"></script>
   <script src="js/engine/feature_extractor.js"></script>
   <script src="js/engine/category_benchmark.js"></script>
+  <script src="js/engine/session_recorder.js"></script>
   <script src="js/engine/stream_state.js"></script>
 
   <!-- HUD Component -->
@@ -35,28 +35,36 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const stateManager = new StreamStateManager();
-      const hudContainer = document.getElementById('hudContainer');
+      try {
+        const hudContainer = document.getElementById('hudContainer');
 
-      const urlParams = new URLSearchParams(window.location.search);
-      const channel = urlParams.get('channel');
-      const preset = urlParams.get('preset');
+        const urlParams = new URLSearchParams(window.location.search);
+        const channel = urlParams.get('channel');
+        const preset = urlParams.get('preset');
 
-      const hud = new StreamHUD(hudContainer, {
-        isCompact: true,
-        showAdvice: true
-      });
+        const hud = new StreamHUD(hudContainer, {
+          isCompact: true,
+          showAdvice: true
+        });
 
-      stateManager.addListener((report) => {
-        hud.update(report);
-      });
+        const stateManager = new StreamStateManager();
 
-      if (channel) {
-        stateManager.connectLiveChannel(channel);
-      } else if (preset) {
-        stateManager.applyPreset(preset);
+        stateManager.addListener((report) => {
+          hud.update(report);
+        });
+
+        if (channel) {
+          stateManager.connectLiveChannel(channel);
+        } else if (preset) {
+          stateManager.applyPreset(preset);
+        }
+      } catch (err) {
+        console.error('Overlay init error:', err);
+        const hudContainer = document.getElementById('hudContainer');
+        if (hudContainer) {
+          hudContainer.innerHTML = `<div style="background: rgba(244,63,94,0.2); border: 1px solid #f43f5e; color: #fff; padding: 12px; border-radius: 8px; font-family: sans-serif; font-size: 12px;"><strong>Ошибка оверлея:</strong> ${err.message}</div>`;
+        }
       }
-      // If neither is in URL, StreamStateManager has already restored the saved channel/mode from localStorage
     });
   </script>
 </body>
