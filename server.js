@@ -367,10 +367,26 @@ setInterval(() => {
   }
 }, 15000);
 
+let retryAttempted = false;
+
 server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`\n⚠️ ВНИМАНИЕ: Порт ${PORT} уже занят другим запущенным процессом!`);
-    console.error(`💡 Решение: Запустите start_widget.bat — он автоматически освободит порт, либо закройте предыдущее окно терминала.\n`);
+  if (err.code === 'EADDRINUSE' && !retryAttempted) {
+    retryAttempted = true;
+    console.log(`\n⚠️ Порт ${PORT} занят предыдущим процессом. Автоматически освобождаем порт...`);
+    try {
+      const { execSync } = require('child_process');
+      if (process.platform === 'win32') {
+        execSync(`powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort ${PORT} -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"`, { stdio: 'ignore' });
+      }
+      setTimeout(() => {
+        try {
+          server.close();
+        } catch (e) {}
+        server.listen(PORT);
+      }, 600);
+    } catch (e) {
+      console.error(`\n❌ Не удалось автоматически освободить порт. Попробуйте еще раз.\n`);
+    }
   } else {
     console.error(`\n❌ Ошибка сервера:`, err.message);
   }
