@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Twitch Multi-Objective Algorithm Emulator | Session Analytics Edition</title>
+  <title>Twitch Multi-Objective Algorithm Emulator | OBS Stream Copilot</title>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%239146ff' width='100' height='100' rx='20'/><text y='70' x='20' font-size='60' font-weight='bold' fill='white'>T</text></svg>" />
 </head>
@@ -15,7 +15,7 @@
         <div class="nav-logo-icon">T</div>
         <div>
           <span class="nav-title">Twitch Ranking Algorithm Emulator</span>
-          <span class="nav-subtitle">Session Analytics Edition • arXiv:2608.04455v1</span>
+          <span class="nav-subtitle">OBS Stream Copilot • arXiv:2608.04455v1</span>
         </div>
       </div>
 
@@ -26,9 +26,18 @@
         <button class="nav-tab-btn" data-view="analytics">📈 Аналитика сессии</button>
       </div>
 
-      <div>
-        <a href="overlay.html" target="_blank" class="obs-link-btn" title="Открыть чистый оверлей для OBS Studio">
-          <span>🎥 OBS Browser Source</span>
+      <!-- OBS Source Links Group -->
+      <div class="obs-nav-group">
+        <a href="overlay.html?layout=circle" target="_blank" class="obs-link-btn" title="Только круг Score (140x140px)">
+          <span>⭕ Только круг</span>
+          <span>↗</span>
+        </a>
+        <a href="overlay.html?layout=mini" target="_blank" class="obs-link-btn" title="Мини-плашка со скором и CCU (340x80px)">
+          <span>📏 Мини-бар</span>
+          <span>↗</span>
+        </a>
+        <a href="overlay.html?layout=full" target="_blank" class="obs-link-btn" title="Полный информационный HUD (380x520px)">
+          <span>🟢 Полный HUD</span>
           <span>↗</span>
         </a>
       </div>

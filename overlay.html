@@ -9,11 +9,9 @@
     html, body {
       background: transparent !important;
       margin: 0;
-      padding: 12px;
+      padding: 8px;
       overflow: hidden;
-    }
-    #hudContainer {
-      width: 380px;
+      display: inline-block;
     }
   </style>
 </head>
@@ -41,10 +39,21 @@
         const urlParams = new URLSearchParams(window.location.search);
         const channel = urlParams.get('channel');
         const preset = urlParams.get('preset');
+        const layoutMode = urlParams.get('layout') || urlParams.get('view') || 'full'; // 'full' | 'circle' | 'mini'
+
+        // Adjust container width based on selected layout
+        if (layoutMode === 'circle' || layoutMode === 'gauge') {
+          hudContainer.style.width = '140px';
+        } else if (layoutMode === 'mini' || layoutMode === 'bar') {
+          hudContainer.style.width = '340px';
+        } else {
+          hudContainer.style.width = '380px';
+        }
 
         const hud = new StreamHUD(hudContainer, {
-          isCompact: true,
-          showAdvice: true
+          layoutMode: layoutMode,
+          isCompact: layoutMode !== 'full',
+          showAdvice: layoutMode === 'full'
         });
 
         const stateManager = new StreamStateManager();
